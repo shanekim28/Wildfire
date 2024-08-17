@@ -6,11 +6,6 @@
 #define VEGETATION_COEFF 0.3
 #define SLOPE_COEFF 0.3
 
-#define WF_LEFT 1
-#define WF_UP 2
-#define WF_RIGHT 3
-#define WF_DOWN 4
-
 typedef struct Vector2 {
     float x;
     float y;
