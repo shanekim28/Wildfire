@@ -21,7 +21,10 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-void simulate(Simulation* sim) { advance_fire_sim(sim); }
+void simulate(Simulation* sim) {
+    advance_wind_sim(sim);
+    advance_fire_sim(sim);
+}
 
 void render(SDL_Renderer* renderer, Simulation* sim) {
     SDL_Surface* surface =
@@ -35,14 +38,13 @@ void render(SDL_Renderer* renderer, Simulation* sim) {
         for (int x = 0; x < sim->width; x++) {
             int index = y * pitch + x * bytes_per_pixel;
             if (draw_mode == 0) {
+                pixels[index] = 255;
                 if (sim->temperature_map[y * sim->width + x] >= 0) {
-                    pixels[index] = 255;
                     pixels[index + 1] = 0;
                     pixels[index + 2] = 0;
                     pixels[index + 3] =
                         255 * sim->temperature_map[y * sim->width + x];
                 } else {
-                    pixels[index] = 255;
                     pixels[index + 1] = 0;
                     pixels[index + 2] = 154;
                     pixels[index + 3] = 64;
@@ -66,6 +68,22 @@ void render(SDL_Renderer* renderer, Simulation* sim) {
                     pixels[index + 3] = 0;
                 }
                 */
+            } else if (draw_mode == 2) {
+                if (x % 20 != 0 || y % 20 != 0) {
+                    continue;
+                }
+
+                Vector2 wind = sim->wind_map[y * sim->width + x];
+                float magnitude = sqrtf(powf(wind.x, 2) + powf(wind.y, 2));
+                SDL_SetRenderDrawColor(renderer, 112, 0, 255, 255);
+                SDL_FRect* rect = malloc(sizeof(SDL_FRect));
+                rect->x = x - 1;
+                rect->y = y - 1;
+                rect->w = 3;
+                rect->h = 3;
+                SDL_RenderRect(renderer, rect);
+                SDL_RenderLine(renderer, x, y, x + wind.x / magnitude * 10,
+                               y + wind.y / magnitude * 10);
             }
         }
     }
