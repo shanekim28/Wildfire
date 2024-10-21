@@ -1,8 +1,10 @@
 #define FNL_IMPL
+#define JC_VORONOI_IMPLEMENTATION
 #include "FastNoiseLite.h"
 #include "firesim.h"
 #include <stdlib.h>
 #include <libc.h>
+#include "jc_voronoi.h"
 
 int rowColToIndex(int row, int col, int width) { return (row * width + col); }
 
@@ -10,13 +12,74 @@ char isValidCell(int x, int y, int width, int height) {
     return (x >= 0 && x < width && y >= 0 && y < height);
 }
 
-/// @brief Generates a heightmap using Diffusion Limited Aggregation
-/// (https://www.youtube.com/watch?v=gsJHzBTPG0Y)
-/// @param height_map height map to generate
-/// @param width Width of the height map
-/// @param height Height of the height map
-/// @param seed Seed for random number generator
-void generate_heightmap(float* height_map, int width, int height, int seed) {}
+void generate_heightmap(float* height_map, int width, int height, int seed) {
+    // Delaunay triangulation
+    int num_points = 100;
+
+    int i;
+    jcv_rect bounding_box = { { 0.0f, 0.0f }, { width, height } };
+    jcv_diagram diagram;
+    jcv_point points[num_points];
+    const jcv_site* sites;
+    jcv_graphedge* graph_edge;
+
+    memset(&diagram, 0, sizeof(jcv_diagram));
+
+    srand(seed);
+    for (i = 0; i < num_points; i++) {
+        points[i].x = (int)(rand()/(1.0f + RAND_MAX / (width + 1)));
+        points[i].y = (int)(rand()/(1.0f + RAND_MAX / (height + 1)));
+
+    }
+
+    printf("# Seed sites\n");
+    for (i = 0; i < num_points; i++) {
+        printf("%f %f\n", points[i].x, points[i].y);
+    }
+
+    jcv_diagram_generate(num_points, (const jcv_point*) points, &bounding_box, 0, &diagram);
+
+    printf("# Edges\n");
+    sites = jcv_diagram_get_sites(&diagram);
+    for (i = 0; i < diagram.numsites; i++) {
+        graph_edge = sites[i].edges;
+
+        while (graph_edge) {
+              // This approach will potentially print shared edges twice
+              printf("%f %f\n", graph_edge->pos[0].x, graph_edge->pos[0].y);
+              printf("%f %f\n", graph_edge->pos[1].x, graph_edge->pos[1].y);
+              graph_edge = graph_edge->next;
+        }
+    }
+
+    // Lloyd relaxation
+    int j;
+    for (j = 0; j < 50; j++) {
+        for (i = 0; i < diagram.numsites; i++) {
+            const jcv_site* site = &sites[i];
+            jcv_point sum = site->p;
+            int count = 1;
+
+            const jcv_graphedge* edge = site->edges;
+            while (edge) {
+                sum.x += edge->pos[0].x;
+                sum.y += edge->pos[0].y;
+                count++;
+                edge = edge->next;
+            }
+
+            points[site->index].x = sum.x / count;
+            points[site->index].y = sum.y / count;
+        }
+    }
+    
+    for (i = 0; i < diagram.numsites; i++) {
+        height_map[(int)(points[i].x + points[i].y * width)] = 1;
+    }
+
+    jcv_diagram_free(&diagram);
+
+}
 
 // Generate a fire map with specified width and height
 void init_fire_sim(Simulation* sim, int width, int height) {
