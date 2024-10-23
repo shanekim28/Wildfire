@@ -1,4 +1,3 @@
-#define FNL_IMPL
 #define JC_VORONOI_IMPLEMENTATION
 #include "FastNoiseLite.h"
 #include "firesim.h"
@@ -85,8 +84,15 @@ void generate_heightmap(float* height_map, int width, int height, int seed) {
 void init_fire_sim(Simulation* sim, int width, int height) {
     // TODO Initialize simulation
     // Generate topography
-    sim->height_map = malloc(width * height * sizeof(float));
-    generate_heightmap(sim->height_map, width, height, 1337);
+    //sim->height_map = malloc(width * height * sizeof(float));
+    //generate_heightmap(sim->height_map, width, height, 1337);
+
+    Map* map = malloc(sizeof(Map));
+    memset(map, 0, sizeof(Map));
+    init_map(map, width, height, 1337);
+    generate_map(map);
+    sim->map = map;
+
     //  Generate vegetation map
     //  sim->vegetation_map = malloc(width * height * sizeof(float));
     sim->wind_map = calloc(width * height, sizeof(Vector2));
@@ -100,6 +106,8 @@ void init_fire_sim(Simulation* sim, int width, int height) {
     sim->temperature_map[0] = 1;
 }
 
+int dx[] = {-1, 1, 0, 0};
+int dy[] = {0, 0, -1, 1};
 void advance_fire_sim(Simulation* sim) {
     // Save state of current board
     float* new_temperature_map =
@@ -123,8 +131,11 @@ void advance_fire_sim(Simulation* sim) {
         int col = i % sim->width;
         // TODO Cellular automata
         // Check neighboring cells
-        for (int neighborRow = -1; neighborRow <= 1; neighborRow++) {
-            for (int neighborCol = -1; neighborCol <= 1; neighborCol++) {
+        for (int i = 0; i < 4; i++) {
+            int neighborRow = dx[i];
+            int neighborCol = dy[i];
+        //for (int neighborRow = -1; neighborRow <= 1; neighborRow++) {
+            //for (int neighborCol = -1; neighborCol <= 1; neighborCol++) {
                 // Ignore current cell
                 if (neighborRow == 0 && neighborRow == neighborCol)
                     continue;
@@ -141,11 +152,16 @@ void advance_fire_sim(Simulation* sim) {
                     new_temperature_map[neighborIndex] >= 0)
                     continue;
 
+                // Ignore water cells
+                if (sim->map->water_map[neighborIndex] > 0) {
+                    continue;
+                }
+                
                 // Ignite cell
                 float rand = (random() % 100) / 100.0f;
                 if (rand < ignition_probability)
                     new_temperature_map[neighborIndex] = 1;
-            }
+            //}
         }
     }
 

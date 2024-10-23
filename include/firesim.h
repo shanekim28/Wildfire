@@ -6,6 +6,8 @@
 #define VEGETATION_COEFF 0.3
 #define SLOPE_COEFF 0.3
 
+#include "map/mapgen.h"
+
 typedef struct Vector2 {
     float x;
     float y;
@@ -14,7 +16,7 @@ typedef struct Vector2 {
 typedef struct Simulation {
     int width;
     int height;
-    float* height_map;
+    Map* map;
     float* vegetation_type_map;
     float* vegetation_density_map;
     Vector2* wind_map;
