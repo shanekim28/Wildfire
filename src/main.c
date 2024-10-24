@@ -24,7 +24,8 @@
 enum DrawMode {
     DEFAULT = 0,
     HEIGHTMAP = 1 << 0,
-    WATERMAP = 1 << 1,
+    TERRAIN = 1 << 1,
+    WATERMAP = 1 << 2,
 };
 
 char paused = 1;
@@ -39,13 +40,20 @@ void render(SDL_Renderer* renderer, Simulation* sim);
 
 int main(int argc, char** argv) {
     Simulation sim = {0};
-    init_fire_sim(&sim, 300, 300);
+    init_fire_sim(&sim, 512, 512);
     run(&sim);
     return 0;
 }
 
 void simulate(Simulation* sim) { advance_fire_sim(sim); }
 
+SDL_Color whittaker[] = {
+    { .r = 86, .g = 139, .b = 112, .a = 255  },
+    { .r = 13, .g = 66, .b = 27, .a = 255  },
+    { .r = 115, .g = 115, .b = 115, .a = 255  },
+    { .r = 115, .g = 115, .b = 115, .a = 255  },
+    { .r = 248, .g = 248, .b = 248, .a = 255  },
+};
 void render(SDL_Renderer* renderer, Simulation* sim) {
     SDL_SetRenderDrawColor(renderer, 25, 23, 36, 255);
     SDL_RenderClear(renderer);
@@ -70,7 +78,36 @@ void render(SDL_Renderer* renderer, Simulation* sim) {
 
             if (draw_mode & HEIGHTMAP) {
                 float val = sim->map->height_map[y * sim->width + x];
-                SDL_SetRenderDrawColor(renderer, 255 * (val + 1) / 2.0f, 255 * (val + 1) / 2.0f, 255 * (val + 1) / 2.0f, 255);
+                SDL_SetRenderDrawColor(renderer, 255 * val, 255 * val, 255 * val, 255);
+
+                SDL_FRect rect2 = {
+                    (int)screenX1,
+                    (int)screenY1,
+                    (int)zoom,
+                    (int)zoom
+                };
+                SDL_RenderFillRect(renderer, &rect2);
+            }
+
+            if (draw_mode & TERRAIN) {
+                float val = sim->map->height_map[y * sim->width + x];
+                float t = val;
+
+                int size = sizeof(whittaker) / sizeof(whittaker[0]);
+
+                int val1idx = (val * (size - 1));
+                int val2idx = ceil(val * (size - 1));
+
+                if (val1idx >= 0 && val1idx < size && val2idx >= 0 && val2idx < size) {
+                    SDL_Color v1 = whittaker[val1idx];
+                    SDL_Color v2 = whittaker[val2idx];
+                    float r = (1 - t) * v1.r + t * v2.r;
+                    float g = (1 - t) * v1.g + t * v2.g;
+                    float b = (1 - t) * v1.b + t * v2.b;
+                    
+                    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+                }
+
 
                 SDL_FRect rect2 = {
                     (int)screenX1,
@@ -159,11 +196,9 @@ void run(Simulation* sim) {
                 switch (event.key.key) {
                     case SDLK_Q:
                         zoom /= 2.0f;
-                        printf("%f\n", zoom);
                         break;
                     case SDLK_E:
                         zoom *= 2.0f;
-                        printf("%f\n", zoom);
                         break;
                     case SDLK_1:
                         draw_mode = DEFAULT;
@@ -172,7 +207,7 @@ void run(Simulation* sim) {
                         draw_mode = HEIGHTMAP;
                         break;
                     case SDLK_3:
-                        draw_mode |= WATERMAP;
+                        draw_mode = TERRAIN;
                         break;
                     case SDLK_SPACE:
                         paused = 1 - paused;
@@ -224,11 +259,26 @@ void run(Simulation* sim) {
             }
             nk_layout_row_dynamic(ctx, 25, 1);
             nk_property_int(ctx, "Seed:", INT_MIN, &seed, INT_MAX, 1, 1);
-            nk_layout_row_static(ctx, 30, 80, 1);
+            nk_layout_row_static(ctx, 30, 80, 2);
             if (nk_button_label(ctx, "Regenerate")) {
                 sim->map->seed = seed;
                 generate_map(sim->map);
                 printf("Regenerating map\n");
+            }
+            if (nk_button_label(ctx, "Save")) {
+                generate_map(sim->map);
+
+                SDL_Surface* surface = SDL_CreateSurface(sim->map->width, sim->map->height, SDL_PIXELFORMAT_RGBA8888);
+                Uint32* pixelData = (Uint32*)surface->pixels;
+                for (int y = 0; y < sim->map->height; y++) {
+                    for (int x = 0; x < sim->map->width; x++) {
+                        Uint8 color = (Uint8)(sim->map->height_map[y * sim->map->width + x] * 255);
+                        Uint32 grayscale = (color << 24) | (color << 16) | (color << 8) | 0xFF;
+                        pixelData[y * sim->map->width + x] = grayscale;
+                    }
+                }
+                SDL_SaveBMP(surface, "output.bmp");
+                printf("Successfully saved map\n");
             }
         }
         nk_end(ctx);

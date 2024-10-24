@@ -4,12 +4,7 @@
 #include <stdlib.h>
 #include <libc.h>
 #include "jc_voronoi.h"
-
-int rowColToIndex(int row, int col, int width) { return (row * width + col); }
-
-char isValidCell(int x, int y, int width, int height) {
-    return (x >= 0 && x < width && y >= 0 && y < height);
-}
+#include "util.h"
 
 void generate_heightmap(float* height_map, int width, int height, int seed) {
     // Delaunay triangulation
@@ -141,12 +136,12 @@ void advance_fire_sim(Simulation* sim) {
                     continue;
 
                 // Bounds check
-                if (!isValidCell(col + neighborCol, row + neighborRow,
+                if (!is_in_bounds(col + neighborCol, row + neighborRow,
                                  sim->width, sim->height))
                     continue;
 
                 // Ignore burned/burning cells
-                int neighborIndex = rowColToIndex(
+                int neighborIndex = row_col_to_index(
                     row + neighborRow, col + neighborCol, sim->width);
                 if (sim->temperature_map[neighborIndex] >= 0 ||
                     new_temperature_map[neighborIndex] >= 0)

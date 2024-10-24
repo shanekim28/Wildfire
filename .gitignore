@@ -3,3 +3,4 @@ lib
 .vscode
 *.swp
 *.pdf
+*.o

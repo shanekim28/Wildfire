@@ -5,12 +5,22 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "vector.h"
+#include "util.h"
 
 static void generate_height_map(float** height_map, int width, int height, int seed);
 static void generate_water_map(float** water_map, float** height_map, int width, int height, int seed);
 void generate_vegetation_map(float** vegetation_map, int width, int height, int seed);
 void generate_road_map(float** road_map, int width, int height, int seed);
 void generate_structure_map(float** structure_map, int width, int height, int seed);
+
+typedef struct DLAPoint DLAPoint;
+struct DLAPoint {
+    Vector2Int pos;
+    DLAPoint* parent;
+    DLAPoint* child;
+    int weight;
+};
 
 void init_map(Map* map, int width, int height, int seed) {
     map->width = width;
@@ -30,7 +40,7 @@ void generate_map(Map* map) {
     memset(map->height_map, 0, width * height * sizeof(float));
     memset(map->water_map, 0, width * height * sizeof(float));
     generate_height_map(&(map->height_map), width, height, map->seed);
-    generate_water_map(&(map->water_map), &(map->height_map), width, height, map->seed);
+    //generate_water_map(&(map->water_map), &(map->height_map), width, height, map->seed);
 }
 
 void free_map(Map* map) {
@@ -41,22 +51,316 @@ void free_map(Map* map) {
     free(map->structure_map);
 }
 
-/// BEGIN HELPER METHODS
-static void generate_height_map(float** height_map, int width, int height, int seed) {
-    // Generate height map
-    fnl_state noise = fnlCreateState();
-    noise.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    noise.seed = seed;
-    noise.frequency = 0.0075f;
-    noise.fractal_type = FNL_FRACTAL_FBM;
-    noise.octaves = 7;
-    noise.lacunarity = 1.79f;
-    noise.gain = 0.36f;
 
-    int index = 0;
+/// BEGIN HELPER METHODS
+static void print_map(DLAPoint* points[], int width, int height) {
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            (*height_map)[index++] = (fnlGetNoise2D(&noise, x, y) + 1) / 2.0f;
+            DLAPoint* curP = points[y * width + x];
+            if (curP == NULL) {
+                printf(". ");
+                continue;
+            }
+
+            if (curP->parent != NULL) {
+                int dirX = curP->parent->pos.x - curP->pos.x;
+                int dirY = curP->parent->pos.y - curP->pos.y;
+
+                // printf("%d %d ", dirX, dirY);
+
+                if (dirX < 0) {
+                    printf("← ");
+                } else if (dirX > 0){
+                    printf("→ ");
+                } else if (dirY > 0) {
+                    printf("↓ ");
+                } else if (dirY < 0) {
+                    printf("↑ ");
+                }
+            } else {
+                printf("# ");
+            }
+        }
+        printf("\n");
+    }
+}
+
+static void upscale(DLAPoint** points[], int width, int height, int scaleFactor) {
+    printf("# Upscaling from %dx%d to %dx%d\n", width, height, width * scaleFactor, height * scaleFactor);
+    for (int i = 1; i < scaleFactor; i *= 2){
+        int newWidth = width * 2;
+        int newHeight = height * 2;
+        DLAPoint** newPoints = NULL;
+        newPoints = calloc(newWidth * newHeight, sizeof(DLAPoint*));
+
+        // Upscale crisp
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                DLAPoint* curPoint = (*points)[y * width + x];
+                if (curPoint == NULL) {
+                    continue;
+                }
+
+                curPoint->pos.x *= 2;
+                curPoint->pos.y *= 2;
+                newPoints[curPoint->pos.y * newWidth + curPoint->pos.x] = curPoint;
+            }
+        }
+
+        free(*points);
+        *points = newPoints;
+
+        width = newWidth;
+        height = newHeight;
+    }
+}
+
+static void create_intermediate_points(DLAPoint** points[], int width, int height) {
+    DLAPoint** newPoints = NULL;
+    newPoints = calloc(width * height, sizeof(DLAPoint*));
+    
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            DLAPoint* curP = (*points)[y * width + x];
+            if (curP == NULL) {
+                continue;
+            }
+
+            DLAPoint* between = NULL;
+            if (curP->parent != NULL) {
+                between = malloc(sizeof(DLAPoint));
+                between->weight = 0;
+                between->pos.x = (curP->pos.x + curP->parent->pos.x) / 2;
+                between->pos.y = (curP->pos.y + curP->parent->pos.y) / 2;
+                between->parent = curP->parent;
+                curP->parent->child = between;
+                between->child = curP;
+                curP->parent = between;
+
+                newPoints[between->pos.y * width + between->pos.x] = between;
+            }
+
+            newPoints[curP->pos.y * width + curP->pos.x] = curP;
+        }
+    }
+
+    free(*points);
+    *points = newPoints;
+}
+
+static void DLA(DLAPoint** points, int width, int height, int numPoints, bool startNew) {
+    printf("# Running DLA using %d points with size %dx%d\n", numPoints, width, height);
+
+    // Populate
+    int i = 0;
+    while (i < numPoints) {
+        // Points from outer circle
+        int px = rand_range(0, width - 1);
+        int py = rand_range(0, height - 1);
+
+        if (points[py * width + px] != NULL) {
+            continue;
+        }
+
+        Vector2Int pos = { .x = px, .y = py };
+        DLAPoint* curPoint = malloc(sizeof(DLAPoint));
+        curPoint->weight = 0;
+        curPoint->pos = pos;
+        curPoint->parent = NULL;
+        curPoint->child = NULL;
+        points[py * width + px] = curPoint;
+
+        if (i == 0 && startNew) {
+            i++;
+            continue;
+        }
+
+        while (1) {
+            bool touching = false;
+            // Check if collided
+            for (int j = 0; j < 4 && !touching; j++) {
+                int dx = wf_dirx[j];
+                int dy = wf_diry[j];
+                if (!is_in_bounds(curPoint->pos.x + dx, curPoint->pos.y + dy, width, height)) continue;
+
+                DLAPoint* neighbor = points[(curPoint->pos.y + dy) * width + (curPoint->pos.x + dx)];
+                if (neighbor != NULL) {
+                    curPoint->parent = neighbor;
+                    neighbor->child = curPoint;
+                    touching = true;
+                }
+            }
+            if (touching) break;
+
+            points[curPoint->pos.y * width + curPoint->pos.x] = NULL;
+
+            int rand_index = (int)(rand_range(0, 3));
+            int dirX = wf_dirx[rand_index];
+            int dirY = wf_diry[rand_index];
+
+            curPoint->pos.x = clamp(curPoint->pos.x + dirX, 0, width - 1);
+            curPoint->pos.y = clamp(curPoint->pos.y + dirY, 0, height - 1);
+
+            points[curPoint->pos.y * width + curPoint->pos.x] = curPoint;
+        }
+
+        i++;
+    }
+}
+
+static void blurry_upscale(float** height_map, int width, int height, int scaleFactor) {
+    // Bilinear interpolation
+    int i = 1;
+    while (i < scaleFactor) {
+        int newWidth = width * 2;
+        int newHeight = height * 2;
+        float* upscaled = malloc(newWidth * newHeight * sizeof(float));
+        memset(upscaled, 0, newWidth * newHeight * sizeof(float));
+
+        for (int y = 0; y < newHeight; y++) {
+            for (int x = 0; x < newWidth; x++) {
+                float gx = (float)(x) / 2;
+                float gy = (float)(y) / 2;
+
+                int x0 = (int)gx;
+                int y0 = (int)gy;
+                int x1 = x0 + 1 < width ? x0 + 1 : x0;
+                int y1 = y0 + 1 < height ? y0 + 1 : y0;
+
+                float tx = gx - x0;
+                float ty = gy - y0;
+
+                float vx0 = (*height_map)[y0 * width + x0];
+                float vx1 = (*height_map)[y0 * width + x1];
+                float vy0 = (*height_map)[y1 * width + x0];
+                float vy1 = (*height_map)[y1 * width + x1];
+                float topInterp = (1 - tx) * vx0 + tx * vx1;
+                float bottomInterp = (1 - tx) * vy0 + tx * vy1;
+
+                float val = (1 - ty) * topInterp + ty * bottomInterp;
+                upscaled[y * newWidth + x] = val;
+            }
+        }
+
+        // Convolve
+        float* convoluted = malloc(newWidth * newHeight * sizeof(float));
+        memset(convoluted, 0, newWidth * newHeight * sizeof(float));
+        float kernel[2][2] = {
+            {0.25, 0.25},
+            {0.25, 0.25}
+        };
+        for (int y = 0; y < newHeight - 1; y++) {
+            for (int x = 0; x < newWidth - 1; x++) {
+                float sum = 0.f;
+                for (int ky = 0; ky < 2; ky++) {
+                    for (int kx = 0; kx < 2; kx++) {
+                        sum += upscaled[(y + ky) * newWidth + (x + kx)] * kernel[ky][kx];
+                    }
+                }
+
+                convoluted[y * newWidth + x] = sum;
+            }
+        }
+
+        free(upscaled);
+        free(*height_map);
+        *height_map = convoluted;
+
+        width *= 2;
+        height *= 2;
+        i *= 2;
+    }
+}
+
+static void points_to_heightmap(float** height_map, DLAPoint* points[], int width, int height) {
+    float* newMap = calloc(width * height, sizeof(float));
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            if (points[y * width + x] != NULL)
+                newMap[y * width + x] = 1;
+        }
+    }
+
+    *height_map = newMap;
+}
+
+static void generate_height_map(float** height_map, int width, int height, int seed) {
+    // Perform DLA with a gaussian blur
+    srand(seed);
+    rand();
+
+    int initialWidth = 8;
+    int initialHeight = 8;
+    int numPoints = 30;
+
+    DLAPoint** points = malloc(initialWidth * initialHeight * sizeof(DLAPoint*));
+    memset(points, 0, initialWidth * initialHeight * sizeof(DLAPoint*));
+
+    DLA(points, initialWidth, initialHeight, numPoints, true);
+    print_map(points, initialWidth, initialHeight);
+
+    int scaleFactor = 32;
+    int scaleStep = 2;
+    int jitter = 4;
+    float* base_image;
+    float* newDetail;
+
+    // Create base image
+    points_to_heightmap(&base_image, points, initialWidth, initialHeight);
+
+    float max_weight = 0;
+    for (int i = 1; i < scaleFactor; i *= scaleStep) {
+        // blur
+        blurry_upscale(&base_image, initialWidth, initialHeight, scaleStep);
+
+        // Draw detail
+        upscale(&points, initialWidth, initialHeight, scaleStep);
+        initialWidth *= scaleStep;
+        initialHeight *= scaleStep;
+        for (int y = 0; y < initialHeight; y++) {
+            for (int x = 0; x < initialWidth; x++) {
+                DLAPoint* cur = points[y * initialWidth + x];
+                if (cur == NULL) continue;
+
+                if (cur->parent == NULL) continue;
+                if (base_image[y * initialWidth + x] > max_weight) {
+                    max_weight = base_image[y * initialWidth + x];
+                }
+
+                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2;
+                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2;
+
+                betweenx += rand_range(-jitter, jitter);
+                betweeny += rand_range(-jitter, jitter);
+
+                if (betweenx < 0) betweenx = 0;
+                if (betweenx >= initialWidth) betweenx = initialWidth - 1;
+                if (betweeny < 0) betweeny = 0;
+                if (betweeny >= initialHeight) betweeny = initialHeight - 1;
+
+                draw_line(base_image, cur->pos.x, cur->pos.y, betweenx, betweeny, initialWidth, 1, WF_DRAW_MODE_ADDITIVE);
+                draw_line(base_image, betweenx, betweeny, cur->parent->pos.x, cur->parent->pos.y, initialWidth, 1, WF_DRAW_MODE_ADDITIVE);
+            }
+        }
+
+        // Generate new detail
+        for (int j = 1; j < scaleStep; j *= 2) {
+            create_intermediate_points(&points, initialWidth, initialHeight);
+        }
+        DLA(points, initialWidth, initialHeight, numPoints + numPoints, false);
+
+        // print_map(points, initialWidth * 2, initialHeight * 2);
+
+        numPoints *= scaleStep;
+    }
+
+    blurry_upscale(&base_image, initialWidth, initialHeight, 2);
+    initialWidth *= 2;
+    initialHeight *= 2;
+    for (int y = 0; y < initialHeight; y++) {
+        for (int x = 0; x < initialWidth; x++) {
+            (*height_map)[y * width + x] = 1 - (1 / (1 + (base_image)[y * initialWidth + x] / (max_weight / 8)));
+            //(*height_map)[y * width + x] = base_image[y * initialWidth + x] / max_weight;
         }
     }
 }
@@ -129,44 +433,11 @@ static void generate_water_map(float** water_map, float** height_map, int width,
         }
 
         // plot line in water map
-        int x0 = px_cur;
-        int y0 = py_cur;
-        int x1 = resx;
-        int y1 = resy;
-
-        int dx = x1 - x0;
-        int dy = y1 - y0;
-
-        int dLong = abs(dx);
-        int dShort = abs(dy);
-
-        int offsetLong = dx > 0 ? 1 : -1;
-        int offsetShort = dy > 0 ? width : -width;
-
-        if(dLong < dShort) {
-            dShort = dShort ^ dLong;
-            dLong = dShort ^ dLong;
-            dShort = dShort ^ dLong;
-
-            offsetShort = offsetShort ^ offsetLong;
-            offsetLong = offsetShort ^ offsetLong;
-            offsetShort = offsetShort ^ offsetLong;
-        }
-
-        int error = 2 * dShort - dLong;
-        int index = y0 * width + x0;
-        const int offset[] = {offsetLong, offsetLong + offsetShort};
-        const int abs_d[]  = {2 * dShort, 2 * (dShort - dLong)};
-        for(int i = 0; i <= dLong; ++i) {
-            (*water_map)[index] = 255;  // or a call to your painting method
-            const int errorIsTooBig = error >= 0;
-            index += offset[errorIsTooBig];
-            error += abs_d[errorIsTooBig];
-        }
+        draw_line(*water_map, px_cur, py_cur, resx, resy, width, 1, WF_DRAW_MODE_NORMAL);
 
         px_cur = resx;
         py_cur = resy;
-        printf("%d %d\n", px_cur, py_cur);
+        //printf("%d %d\n", px_cur, py_cur);
     }
 }
 

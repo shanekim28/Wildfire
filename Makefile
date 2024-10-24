@@ -1,6 +1,6 @@
 
 EXE = wildfire
-SOURCES = src/main.c src/firesim.c src/map/mapgen.c 
+SOURCES = src/main.c src/firesim.c src/map/mapgen.c src/util.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 LIBS = 
 

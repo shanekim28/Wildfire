@@ -7,11 +7,7 @@
 #define SLOPE_COEFF 0.3
 
 #include "map/mapgen.h"
-
-typedef struct Vector2 {
-    float x;
-    float y;
-} Vector2;
+#include "vector.h"
 
 typedef struct Simulation {
     int width;
