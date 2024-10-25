@@ -240,7 +240,7 @@ static void blurry_upscale(float** height_map, int width, int height, int scaleF
             }
         }
 
-        // Convolve
+        // Convolve 4x4
         float* convoluted = malloc(newWidth * newHeight * sizeof(float));
         memset(convoluted, 0, newWidth * newHeight * sizeof(float));
         float kernel[4][4] = {
@@ -297,9 +297,17 @@ static void generate_height_map(float** height_map, int width, int height, int s
     srand(seed);
     rand();
 
-    int initialWidth = 8;
-    int initialHeight = 8;
-    int numPoints = 30;
+    fnl_state noise = fnlCreateState();
+    noise.frequency = 0.1f;
+    noise.lacunarity = 2.f;
+    noise.seed = seed;
+    noise.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    noise.fractal_type = FNL_FRACTAL_FBM;
+    noise.octaves = 3;
+
+    int initialWidth = 32;
+    int initialHeight = 32;
+    int numPoints = 512;
 
     DLAPoint** points = malloc(initialWidth * initialHeight * sizeof(DLAPoint*));
     memset(points, 0, initialWidth * initialHeight * sizeof(DLAPoint*));
@@ -307,9 +315,9 @@ static void generate_height_map(float** height_map, int width, int height, int s
     DLA(points, initialWidth, initialHeight, numPoints, true);
     print_map(points, initialWidth, initialHeight);
 
-    int scaleFactor = 16;
+    int scaleFactor = 4;
     int scaleStep = 2;
-    int jitter = 2;
+    int jitter = 5;
     float* base_image;
     float* newDetail;
 
@@ -326,7 +334,6 @@ static void generate_height_map(float** height_map, int width, int height, int s
 
         initialWidth *= scaleStep;
         initialHeight *= scaleStep;
-        print_map(points, initialWidth, initialHeight);
         float* tmp = calloc(initialWidth * initialHeight, sizeof(float));
         // Assign weights
         for (int y = 0; y < initialHeight; y++) {
@@ -352,26 +359,44 @@ static void generate_height_map(float** height_map, int width, int height, int s
                 }
             }
         }
-
-        // draw lines between
+        
+        // perturb nodes
+        Vector2Int perturbed[initialWidth * initialHeight * sizeof(Vector2Int)]; 
+        memset(perturbed, 0, initialWidth * initialHeight * sizeof(Vector2Int));
         for (int y = 0; y < initialHeight; y++) {
             for (int x = 0; x < initialWidth; x++) {
-                DLAPoint* cur = points[y * initialWidth + x];
+                int curIndex = y * initialWidth + x;
+                DLAPoint* cur = points[curIndex];
+                if (cur == NULL) continue;
+
+                int valx = cur->pos.x + jitter * cos(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
+                int valy = cur->pos.y + jitter * sin(fnlGetNoise2D(&noise, (float)x / i , (float)y / i) * M_PI);
+                valx = clamp(valx, 0, initialWidth - 1);
+                valy = clamp(valy, 0, initialHeight - 1);
+                
+                perturbed[curIndex].x = valx;
+                perturbed[curIndex].y = valy;
+            }
+        }
+
+        // draw lines between perturbed points
+        for (int y = 0; y < initialHeight; y++) {
+            for (int x = 0; x < initialWidth; x++) {
+                int curIndex = y * initialWidth + x;
+                DLAPoint* cur = points[curIndex];
                 if (cur == NULL) continue;
 
                 if (cur->parent == NULL) continue;
-                /*
-                int childPos = it->pos.y * initialWidth + it->pos.x;
-                int betweenPos = betweeny * initialWidth + betweenx;
-                int parentPos = it->parent->pos.y * initialWidth + it->parent->pos.x;
-                */
-                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2 + rand_range(-jitter, jitter);
-                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2 + rand_range(-jitter, jitter);
+
+                int parentIndex = cur->parent->pos.y * initialWidth + cur->parent->pos.x;
+
+                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2 + jitter * cos(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
+                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2 + jitter * sin(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
                 betweenx = clamp(betweenx, 0, initialWidth - 1);
                 betweeny = clamp(betweeny, 0, initialHeight - 1);
 
-                draw_line(tmp, cur->pos.x, cur->pos.y, betweenx, betweeny, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
-                draw_line(tmp, betweenx, betweeny, cur->parent->pos.x, cur->parent->pos.y, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
+                draw_line(tmp, perturbed[curIndex].x, perturbed[curIndex].y, betweenx, betweeny, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
+                draw_line(tmp, betweenx, betweeny, perturbed[parentIndex].x, perturbed[parentIndex].y, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
             }
         }
 
@@ -381,7 +406,7 @@ static void generate_height_map(float** height_map, int width, int height, int s
         for (int j = 1; j < scaleStep; j *= 2) {
             create_intermediate_points(&points, initialWidth, initialHeight);
         }
-        DLA(points, initialWidth, initialHeight, (initialWidth) * (initialHeight) * ((float)9 / 25), false);
+        DLA(points, initialWidth, initialHeight, (initialWidth) * (initialHeight) * ((float)49 / 100), false);
 
         numPoints *= scaleStep;
     }
@@ -391,7 +416,7 @@ static void generate_height_map(float** height_map, int width, int height, int s
     initialHeight *= 2;
     for (int y = 0; y < initialHeight; y++) {
         for (int x = 0; x < initialWidth; x++) {
-            (*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x] / max_weight)));
+            (*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x] / max_weight * scaleFactor)));
             //(*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x])));
             //(*height_map)[y * width + x] = base_image[y * initialWidth + x] / max_weight;
         }
