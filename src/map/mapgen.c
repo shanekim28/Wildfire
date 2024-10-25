@@ -390,8 +390,8 @@ static void generate_height_map(float** height_map, int width, int height, int s
 
                 int parentIndex = cur->parent->pos.y * initialWidth + cur->parent->pos.x;
 
-                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2 + jitter * cos(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
-                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2 + jitter * sin(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
+                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2 + jitter * cos(fnlGetNoise2D(&noise, (float)x / (i * 2), (float)y / i) * M_PI);
+                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2 + jitter * sin(fnlGetNoise2D(&noise, (float)x / (i * 2), (float)y / i) * M_PI);
                 betweenx = clamp(betweenx, 0, initialWidth - 1);
                 betweeny = clamp(betweeny, 0, initialHeight - 1);
 
@@ -416,7 +416,7 @@ static void generate_height_map(float** height_map, int width, int height, int s
     initialHeight *= 2;
     for (int y = 0; y < initialHeight; y++) {
         for (int x = 0; x < initialWidth; x++) {
-            (*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x] / max_weight * scaleFactor)));
+            (*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x] / max_weight)));
             //(*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x])));
             //(*height_map)[y * width + x] = base_image[y * initialWidth + x] / max_weight;
         }
