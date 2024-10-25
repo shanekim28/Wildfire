@@ -1,5 +1,6 @@
 
 EXE = wildfire
+OUTPUT_DIR = build
 SOURCES = src/main.c src/firesim.c src/map/mapgen.c src/util.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 LIBS = 
@@ -19,7 +20,7 @@ all: $(EXE)
 	@echo Build complete
 
 $(EXE): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(CFLAGS) -o $(OUTPUT_DIR)/$@ $^ $(LIBS)
 
 clean:
-	rm -f $(EXE) $(OBJS)
+	rm -f $(OUTPUT_DIR)/$(EXE) $(OBJS)

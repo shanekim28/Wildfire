@@ -31,7 +31,7 @@ enum DrawMode {
 char paused = 1;
 enum DrawMode draw_mode = DEFAULT;
 
-float zoom = 1.0f;
+float zoom = 2.0f;
 int offsetX = (800 - 300) / 2, offsetY = (600 - 300) / 2;
 
 void run(Simulation* sim);
@@ -40,7 +40,7 @@ void render(SDL_Renderer* renderer, Simulation* sim);
 
 int main(int argc, char** argv) {
     Simulation sim = {0};
-    init_fire_sim(&sim, 512, 512);
+    init_fire_sim(&sim, 256, 256);
     run(&sim);
     return 0;
 }

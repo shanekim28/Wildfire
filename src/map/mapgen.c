@@ -66,8 +66,6 @@ static void print_map(DLAPoint* points[], int width, int height) {
                 int dirX = curP->parent->pos.x - curP->pos.x;
                 int dirY = curP->parent->pos.y - curP->pos.y;
 
-                // printf("%d %d ", dirX, dirY);
-
                 if (dirX < 0) {
                     printf("← ");
                 } else if (dirX > 0){
@@ -245,15 +243,17 @@ static void blurry_upscale(float** height_map, int width, int height, int scaleF
         // Convolve
         float* convoluted = malloc(newWidth * newHeight * sizeof(float));
         memset(convoluted, 0, newWidth * newHeight * sizeof(float));
-        float kernel[2][2] = {
-            {0.25, 0.25},
-            {0.25, 0.25}
+        float kernel[4][4] = {
+            {0.125, 0.125, 0.125, 0.125},
+            {0.125, 0.125, 0.125, 0.125},
+            {0.125, 0.125, 0.125, 0.125},
+            {0.125, 0.125, 0.125, 0.125},
         };
-        for (int y = 0; y < newHeight - 1; y++) {
-            for (int x = 0; x < newWidth - 1; x++) {
+        for (int y = 0; y < newHeight - 4; y++) {
+            for (int x = 0; x < newWidth - 4; x++) {
                 float sum = 0.f;
-                for (int ky = 0; ky < 2; ky++) {
-                    for (int kx = 0; kx < 2; kx++) {
+                for (int ky = 0; ky < 4; ky++) {
+                    for (int kx = 0; kx < 4; kx++) {
                         sum += upscaled[(y + ky) * newWidth + (x + kx)] * kernel[ky][kx];
                     }
                 }
@@ -284,6 +284,14 @@ static void points_to_heightmap(float** height_map, DLAPoint* points[], int widt
     *height_map = newMap;
 }
 
+static void sum_heightmaps(float* a, float* b, int width, int height) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            a[y * width + x] += b[y * width + x];
+        }
+    }
+}
+
 static void generate_height_map(float** height_map, int width, int height, int seed) {
     // Perform DLA with a gaussian blur
     srand(seed);
@@ -299,57 +307,81 @@ static void generate_height_map(float** height_map, int width, int height, int s
     DLA(points, initialWidth, initialHeight, numPoints, true);
     print_map(points, initialWidth, initialHeight);
 
-    int scaleFactor = 32;
+    int scaleFactor = 16;
     int scaleStep = 2;
-    int jitter = 4;
+    int jitter = 2;
     float* base_image;
     float* newDetail;
 
     // Create base image
     points_to_heightmap(&base_image, points, initialWidth, initialHeight);
 
-    float max_weight = 0;
+    float max_weight = 1;
     for (int i = 1; i < scaleFactor; i *= scaleStep) {
         // blur
         blurry_upscale(&base_image, initialWidth, initialHeight, scaleStep);
 
         // Draw detail
         upscale(&points, initialWidth, initialHeight, scaleStep);
+
         initialWidth *= scaleStep;
         initialHeight *= scaleStep;
+        print_map(points, initialWidth, initialHeight);
+        float* tmp = calloc(initialWidth * initialHeight, sizeof(float));
+        // Assign weights
+        for (int y = 0; y < initialHeight; y++) {
+            for (int x = 0; x < initialWidth; x++) {
+                DLAPoint* cur = points[y * initialWidth + x];
+                if (cur == NULL) continue;
+
+                // Find leaf nodes
+                if (cur->child != NULL) continue;
+
+                float weight = 0;
+                DLAPoint* it = cur;
+                while (it->parent) {
+                    weight++;
+
+                    it->parent->weight = weight > (it->parent->weight) ? weight : it->parent->weight;
+
+                    if (weight > max_weight) {
+                        max_weight = weight;
+                    }
+                    
+                    it = it->parent;
+                }
+            }
+        }
+
+        // draw lines between
         for (int y = 0; y < initialHeight; y++) {
             for (int x = 0; x < initialWidth; x++) {
                 DLAPoint* cur = points[y * initialWidth + x];
                 if (cur == NULL) continue;
 
                 if (cur->parent == NULL) continue;
-                if (base_image[y * initialWidth + x] > max_weight) {
-                    max_weight = base_image[y * initialWidth + x];
-                }
+                /*
+                int childPos = it->pos.y * initialWidth + it->pos.x;
+                int betweenPos = betweeny * initialWidth + betweenx;
+                int parentPos = it->parent->pos.y * initialWidth + it->parent->pos.x;
+                */
+                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2 + rand_range(-jitter, jitter);
+                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2 + rand_range(-jitter, jitter);
+                betweenx = clamp(betweenx, 0, initialWidth - 1);
+                betweeny = clamp(betweeny, 0, initialHeight - 1);
 
-                int betweenx = (cur->pos.x + cur->parent->pos.x) / 2;
-                int betweeny = (cur->pos.y + cur->parent->pos.y) / 2;
-
-                betweenx += rand_range(-jitter, jitter);
-                betweeny += rand_range(-jitter, jitter);
-
-                if (betweenx < 0) betweenx = 0;
-                if (betweenx >= initialWidth) betweenx = initialWidth - 1;
-                if (betweeny < 0) betweeny = 0;
-                if (betweeny >= initialHeight) betweeny = initialHeight - 1;
-
-                draw_line(base_image, cur->pos.x, cur->pos.y, betweenx, betweeny, initialWidth, 1, WF_DRAW_MODE_ADDITIVE);
-                draw_line(base_image, betweenx, betweeny, cur->parent->pos.x, cur->parent->pos.y, initialWidth, 1, WF_DRAW_MODE_ADDITIVE);
+                draw_line(tmp, cur->pos.x, cur->pos.y, betweenx, betweeny, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
+                draw_line(tmp, betweenx, betweeny, cur->parent->pos.x, cur->parent->pos.y, initialWidth, cur->parent->weight, WF_DRAW_MODE_NORMAL);
             }
         }
+
+        sum_heightmaps(base_image, tmp, initialWidth, initialHeight);
 
         // Generate new detail
         for (int j = 1; j < scaleStep; j *= 2) {
             create_intermediate_points(&points, initialWidth, initialHeight);
         }
-        DLA(points, initialWidth, initialHeight, numPoints + numPoints, false);
-
-        // print_map(points, initialWidth * 2, initialHeight * 2);
+        DLA(points, initialWidth, initialHeight, (initialWidth) * (initialHeight) * ((float)9 / 25), false);
 
         numPoints *= scaleStep;
     }
@@ -359,7 +391,8 @@ static void generate_height_map(float** height_map, int width, int height, int s
     initialHeight *= 2;
     for (int y = 0; y < initialHeight; y++) {
         for (int x = 0; x < initialWidth; x++) {
-            (*height_map)[y * width + x] = 1 - (1 / (1 + (base_image)[y * initialWidth + x] / (max_weight / 8)));
+            (*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x] / max_weight)));
+            //(*height_map)[y * width + x] = 1 - (1 / ((1 + base_image[y * initialWidth + x])));
             //(*height_map)[y * width + x] = base_image[y * initialWidth + x] / max_weight;
         }
     }
