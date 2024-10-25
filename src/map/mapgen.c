@@ -369,8 +369,8 @@ static void generate_height_map(float** height_map, int width, int height, int s
                 DLAPoint* cur = points[curIndex];
                 if (cur == NULL) continue;
 
-                int valx = cur->pos.x + jitter * cos(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
-                int valy = cur->pos.y + jitter * sin(fnlGetNoise2D(&noise, (float)x / i , (float)y / i) * M_PI);
+                int valx = cur->pos.x; //+ jitter * cos(fnlGetNoise2D(&noise, (float)x / i, (float)y / i) * M_PI);
+                int valy = cur->pos.y; //+ jitter * sin(fnlGetNoise2D(&noise, (float)x / i , (float)y / i) * M_PI);
                 valx = clamp(valx, 0, initialWidth - 1);
                 valy = clamp(valy, 0, initialHeight - 1);
                 
